@@ -85,6 +85,18 @@ struct retro_core_option_definition option_defs_us[] = {
       "OFF"
    },
    {
+      "bluemsx_mouse",
+      "Mouse in Joystick Port 1",
+      "Auto plugs the mouse into port 1 when it moves or clicks, and the joystick back in when the joystick is used.",
+      {
+         { "Auto",   NULL },
+         { "Off",    NULL },
+         { "Always", NULL },
+         { NULL, NULL },
+      },
+      "Auto"
+   },
+   {
       "bluemsx_ym2413_enable",
       "Sound YM2413 Enable (Restart)",
       "Awaiting description.",

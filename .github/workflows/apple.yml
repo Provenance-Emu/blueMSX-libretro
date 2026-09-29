@@ -1,0 +1,44 @@
+name: Apple dylibs
+
+# Builds the iOS and tvOS cores Provenance loads, so they can be published with
+# Provenance's CoresRetro/RetroArch/scripts/local-dylibs.sh without a local Mac build.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ios-arm64
+            sdk: iphoneos
+            min: -miphoneos-version-min=17.0
+            output: bluemsx_libretro_ios.dylib
+          - platform: tvos-arm64
+            sdk: appletvos
+            min: -mtvos-version-min=17.0
+            output: bluemsx_libretro_tvos.dylib
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          SDK="$(xcrun --sdk ${{ matrix.sdk }} --show-sdk-path)"
+          # CC/CXX on the command line override the Makefile's, which pin an old
+          # minimum OS and always use the iPhoneOS SDK. Current clang makes pointer
+          # type mismatches errors; blueMSX's void*-callback style trips them throughout.
+          NOWERR="-Wno-error=incompatible-function-pointer-types -Wno-error=incompatible-pointer-types -Wno-error=int-conversion"
+          make -f Makefile.libretro platform=${{ matrix.platform }} IOSSDK="$SDK" \
+            CC="cc -arch arm64 -isysroot $SDK ${{ matrix.min }} $NOWERR" \
+            CXX="c++ -arch arm64 -isysroot $SDK ${{ matrix.min }} $NOWERR" \
+            -j"$(sysctl -n hw.ncpu)"
+          vtool -show-build ${{ matrix.output }} | grep -E "platform|minos"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}
+          path: ${{ matrix.output }}

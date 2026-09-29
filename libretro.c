@@ -64,6 +64,15 @@ bool is_coleco, is_sega, is_spectra, is_auto, auto_rewind_cas;
 static unsigned msx_vdp_synctype;
 static bool msx_ym2413_enable;
 static bool use_overscan = true;
+
+/* Mouse in MSX joystick port 1 (bluemsx_mouse). Auto plugs it in when the mouse
+ * moves or clicks and swaps the joystick back in when the joystick is used. */
+enum { MOUSE_AUTO, MOUSE_OFF, MOUSE_ALWAYS };
+static int mouse_mode = MOUSE_AUTO;
+/* Read and cleared by archMouseGetState() in Src/Libretro/Mouse.c. */
+int libretro_mouse_dx;
+int libretro_mouse_dy;
+int libretro_mouse_buttons;
 int msx2_dif = 0;
 
 
@@ -773,6 +782,17 @@ static void check_variables(void)
       }
    }
 
+   var.key = "bluemsx_mouse";
+   var.value = NULL;
+   mouse_mode = MOUSE_AUTO;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (!strcmp(var.value, "Off"))
+         mouse_mode = MOUSE_OFF;
+      else if (!strcmp(var.value, "Always"))
+         mouse_mode = MOUSE_ALWAYS;
+   }
+
    var.key = "bluemsx_auto_rewind_cas";
    var.value = NULL;
 
@@ -1011,6 +1031,44 @@ UInt8 archJoystickGetState(int joystickNo)
          (eventMap[EC_JOY1_BUTTON4] << 7));
 }
 
+static void update_mouse(int16_t port0_bits)
+{
+   const int16_t stick_bits = (1 << RETRO_DEVICE_ID_JOYPAD_UP)   | (1 << RETRO_DEVICE_ID_JOYPAD_DOWN)
+                            | (1 << RETRO_DEVICE_ID_JOYPAD_LEFT) | (1 << RETRO_DEVICE_ID_JOYPAD_RIGHT)
+                            | (1 << RETRO_DEVICE_ID_JOYPAD_A)    | (1 << RETRO_DEVICE_ID_JOYPAD_B);
+   JoystickPortType type = joystickPortGetType(0);
+   int dx = 0, dy = 0, buttons = 0;
+
+   if (mouse_mode != MOUSE_OFF)
+   {
+      dx = input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
+      dy = input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);
+      buttons = (input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT)  ? 1 : 0)
+              | (input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_RIGHT) ? 2 : 0);
+   }
+
+   if (mouse_mode == MOUSE_ALWAYS)
+      type = JOYSTICK_PORT_MOUSE;
+   else if (mouse_mode == MOUSE_OFF)
+      type = JOYSTICK_PORT_JOYSTICK;
+   else if (dx || dy || buttons)
+      type = JOYSTICK_PORT_MOUSE;
+   else if (input_devices[0] == RETRO_DEVICE_JOYPAD && (port0_bits & stick_bits))
+      type = JOYSTICK_PORT_JOYSTICK;
+
+   if (joystickPortGetType(0) != type)
+      joystickPortSetType(0, type);
+
+   if (joystickPortGetType(0) == JOYSTICK_PORT_MOUSE)
+   {
+      libretro_mouse_dx += dx;
+      libretro_mouse_dy += dy;
+      libretro_mouse_buttons = buttons;
+   }
+   else
+      libretro_mouse_dx = libretro_mouse_dy = libretro_mouse_buttons = 0;
+}
+
 void retro_run(void)
 {
    int i,j;
@@ -1039,6 +1097,9 @@ void retro_run(void)
             joypad_bits[i] |= input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, j) ? (1 << j) : 0;
       }
    }
+
+   if (!is_coleco)
+      update_mouse(joypad_bits[0]);
 
    if (is_coleco)
    {
